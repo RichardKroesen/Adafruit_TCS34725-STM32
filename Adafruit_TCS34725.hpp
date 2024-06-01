@@ -30,16 +30,10 @@
  *  OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
  *  DAMAGE.
  */
-#ifndef _TCS34725_H_
-#define _TCS34725_H_
+#ifndef TCS34725_HPP
+#define TCS34725_HPP
 
-#if ARDUINO >= 100
-#include <Arduino.h>
-#else
-#include <WProgram.h>
-#endif
-
-#include <Adafruit_I2CDevice.h>
+#include "stm32f1xx_hal.h"
 
 #define TCS34725_ADDRESS (0x29)     /**< I2C address **/
 #define TCS34725_COMMAND_BIT (0x80) /**< Command bit **/
@@ -195,11 +189,10 @@ typedef enum {
  */
 class Adafruit_TCS34725 {
 public:
-  Adafruit_TCS34725(uint8_t = TCS34725_INTEGRATIONTIME_2_4MS,
-                    tcs34725Gain_t = TCS34725_GAIN_1X);
+  Adafruit_TCS34725(uint8_t = TCS34725_INTEGRATIONTIME_2_4MS, tcs34725Gain_t = TCS34725_GAIN_1X);
 
-  boolean begin(uint8_t addr = TCS34725_ADDRESS, TwoWire *theWire = &Wire);
-  boolean init();
+  bool begin(I2C_HandleTypeDef *hi2c, uint8_t addr = TCS34725_ADDRESS);
+  bool init();
 
   void setIntegrationTime(uint8_t it);
   void setGain(tcs34725Gain_t gain);
@@ -213,17 +206,16 @@ public:
   void write8(uint8_t reg, uint8_t value);
   uint8_t read8(uint8_t reg);
   uint16_t read16(uint8_t reg);
-  void setInterrupt(boolean flag);
+  void setInterrupt(bool flag);
   void clearInterrupt();
   void setIntLimits(uint16_t l, uint16_t h);
   void enable();
   void disable();
 
 private:
-  Adafruit_I2CDevice *i2c_dev = NULL; ///< Pointer to I2C bus interface
-  boolean _tcs34725Initialised;
+  I2C_HandleTypeDef *hi2c;
+  bool _tcs34725Initialised;
   tcs34725Gain_t _tcs34725Gain;
   uint8_t _tcs34725IntegrationTime;
 };
-
 #endif

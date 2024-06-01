@@ -11,7 +11,7 @@
  *
  *  @section author Author
  *
- *  KTOWN (Adafruit Industries)
+ *  KTOWN (Adafruit Industries) & Richard Kroesen
  *
  *  @section license License
  *
@@ -20,16 +20,10 @@
  *  @section HISTORY
  *
  *  v1.0 - First release
+ *  v2.0 - Updated to new Adafruit_Sensor and Adafruit_I2CDevice for STM32 support.
  */
-#ifdef __AVR
-#include <avr/pgmspace.h>
-#elif defined(ESP8266)
-#include <pgmspace.h>
-#endif
-#include <math.h>
-#include <stdlib.h>
 
-#include "Adafruit_TCS34725.h"
+#include "Adafruit_TCS34725.hpp"
 
 /*!
  *  @brief  Implements missing powf function
@@ -50,7 +44,7 @@ float powf(const float x, const float y) {
  */
 void Adafruit_TCS34725::write8(uint8_t reg, uint8_t value) {
   uint8_t buffer[2] = {(uint8_t)(TCS34725_COMMAND_BIT | reg), value};
-  i2c_dev->write(buffer, 2);
+  HAL_I2C_Master_Transmit(hi2c, (uint16_t)(TCS34725_ADDRESS << 1), buffer, 2, HAL_MAX_DELAY);
 }
 
 /*!
@@ -60,7 +54,8 @@ void Adafruit_TCS34725::write8(uint8_t reg, uint8_t value) {
  */
 uint8_t Adafruit_TCS34725::read8(uint8_t reg) {
   uint8_t buffer[1] = {(uint8_t)(TCS34725_COMMAND_BIT | reg)};
-  i2c_dev->write_then_read(buffer, 1, buffer, 1);
+  HAL_I2C_Master_Transmit(hi2c, (uint16_t)(TCS34725_ADDRESS << 1), buffer, 1, HAL_MAX_DELAY);
+  HAL_I2C_Master_Receive(hi2c, (uint16_t)(TCS34725_ADDRESS << 1), buffer, 1, HAL_MAX_DELAY);
   return buffer[0];
 }
 
@@ -70,8 +65,10 @@ uint8_t Adafruit_TCS34725::read8(uint8_t reg) {
  *  @return value
  */
 uint16_t Adafruit_TCS34725::read16(uint8_t reg) {
-  uint8_t buffer[2] = {(uint8_t)(TCS34725_COMMAND_BIT | reg), 0};
-  i2c_dev->write_then_read(buffer, 1, buffer, 2);
+  uint8_t buffer[2];
+  uint8_t cmd = TCS34725_COMMAND_BIT | reg;
+  HAL_I2C_Master_Transmit(hi2c, (uint16_t)(TCS34725_ADDRESS << 1), &cmd, 1, HAL_MAX_DELAY);
+  HAL_I2C_Master_Receive(hi2c, (uint16_t)(TCS34725_ADDRESS << 1), buffer, 2, HAL_MAX_DELAY);
   return (uint16_t(buffer[1]) << 8) | (uint16_t(buffer[0]) & 0xFF);
 }
 
@@ -80,7 +77,7 @@ uint16_t Adafruit_TCS34725::read16(uint8_t reg) {
  */
 void Adafruit_TCS34725::enable() {
   write8(TCS34725_ENABLE, TCS34725_ENABLE_PON);
-  delay(3);
+  HAL_Delay(3);
   write8(TCS34725_ENABLE, TCS34725_ENABLE_PON | TCS34725_ENABLE_AEN);
   /* Set a delay for the integration time.
     This is only necessary in the case where enabling and then
@@ -89,7 +86,7 @@ void Adafruit_TCS34725::enable() {
     performed too quickly, the data is not yet valid and all 0's are
     returned */
   /* 12/5 = 2.4, add 1 to account for integer truncation */
-  delay((256 - _tcs34725IntegrationTime) * 12 / 5 + 1);
+  HAL_Delay((256 - _tcs34725IntegrationTime) * 12 / 5 + 1);
 }
 
 /*!
@@ -97,8 +94,7 @@ void Adafruit_TCS34725::enable() {
  */
 void Adafruit_TCS34725::disable() {
   /* Turn the device off to save power */
-  uint8_t reg = 0;
-  reg = read8(TCS34725_ENABLE);
+  uint8_t reg = read8(TCS34725_ENABLE);
   write8(TCS34725_ENABLE, reg & ~(TCS34725_ENABLE_PON | TCS34725_ENABLE_AEN));
 }
 
@@ -117,17 +113,14 @@ Adafruit_TCS34725::Adafruit_TCS34725(uint8_t it, tcs34725Gain_t gain) {
 
 /*!
  *  @brief  Initializes I2C and configures the sensor
+ *  @param  hi2c
+ *          I2C handle
  *  @param  addr
- *          i2c address
- *  @param  *theWire
- *          The Wire object
+ *          I2C address
  *  @return True if initialization was successful, otherwise false.
  */
-boolean Adafruit_TCS34725::begin(uint8_t addr, TwoWire *theWire) {
-  if (i2c_dev)
-    delete i2c_dev;
-  i2c_dev = new Adafruit_I2CDevice(addr, theWire);
-
+bool Adafruit_TCS34725::begin(I2C_HandleTypeDef *hi2c, uint8_t addr) {
+  this->hi2c = hi2c;
   return init();
 }
 
@@ -135,10 +128,7 @@ boolean Adafruit_TCS34725::begin(uint8_t addr, TwoWire *theWire) {
  *  @brief  Part of begin
  *  @return True if initialization was successful, otherwise false.
  */
-boolean Adafruit_TCS34725::init() {
-  if (!i2c_dev->begin())
-    return false;
-
+bool Adafruit_TCS34725::init() {
   /* Make sure we're actually connected */
   uint8_t x = read8(TCS34725_ID);
   if ((x != 0x4d) && (x != 0x44) && (x != 0x10)) {
@@ -163,7 +153,7 @@ boolean Adafruit_TCS34725::init() {
  */
 void Adafruit_TCS34725::setIntegrationTime(uint8_t it) {
   if (!_tcs34725Initialised)
-    begin();
+    begin(hi2c);
 
   /* Update the timing register */
   write8(TCS34725_ATIME, it);
@@ -172,6 +162,7 @@ void Adafruit_TCS34725::setIntegrationTime(uint8_t it) {
   _tcs34725IntegrationTime = it;
 }
 
+
 /*!
  *  @brief  Adjusts the gain on the TCS34725
  *  @param  gain
@@ -179,7 +170,7 @@ void Adafruit_TCS34725::setIntegrationTime(uint8_t it) {
  */
 void Adafruit_TCS34725::setGain(tcs34725Gain_t gain) {
   if (!_tcs34725Initialised)
-    begin();
+    begin(hi2c);
 
   /* Update the timing register */
   write8(TCS34725_CONTROL, gain);
@@ -202,7 +193,7 @@ void Adafruit_TCS34725::setGain(tcs34725Gain_t gain) {
 void Adafruit_TCS34725::getRawData(uint16_t *r, uint16_t *g, uint16_t *b,
                                    uint16_t *c) {
   if (!_tcs34725Initialised)
-    begin();
+    begin(hi2c);
 
   *c = read16(TCS34725_CDATAL);
   *r = read16(TCS34725_RDATAL);
@@ -211,7 +202,7 @@ void Adafruit_TCS34725::getRawData(uint16_t *r, uint16_t *g, uint16_t *b,
 
   /* Set a delay for the integration time */
   /* 12/5 = 2.4, add 1 to account for integer truncation */
-  delay((256 - _tcs34725IntegrationTime) * 12 / 5 + 1);
+  HAL_Delay((256 - _tcs34725IntegrationTime) * 12 / 5 + 1);
 }
 
 /*!
